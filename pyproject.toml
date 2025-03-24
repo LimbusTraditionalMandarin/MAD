@@ -1,0 +1,109 @@
+# This file is part of MAD project which is released under GNU GPL v3.0.
+# Copyright (c) 2025- Limbus Traditional Mandarin
+
+[project]
+name = "mad"
+version = "0.1.0"
+authors = [
+  { name = "Traxton Chen", email = "Traxton.GPG@proton.me" },
+  { name = "Xiink", email = "wwr774926@gmail.com" },
+]
+description = "Localized module automatic downloader for Limbus Company (zh_Hant)."
+license = "GPL-3.0-or-later"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+  "anyio>=4.9.0",
+  "httpx>=0.28.1",
+  "pyside6>=6.8.2.1",
+  "requests>=2.32.3",
+]
+
+[dependency-groups]
+dev = ["nuitka>=2.6.8"]
+
+## Linter & Formatter
+[tool.ruff]
+# Always generate Python 3.12 compatible code
+target-version = "py312"
+
+# Maximum number of characters per line without forced line breaks
+line-length = 100
+
+# Enable rules
+select = [
+  "ASYNC", # flake8-async
+  "B",     # flake8-bugbear
+  "C4",    # flake8-comprehensions
+  "C90",   # mccabe
+  "COM",   # flake8-commas
+  "D",     # pydocstyle
+  "DTZ",   # flake8-datetimez
+  "E",     # pycodestyle Error
+  "F",     # pyflakes
+  "FLY",   # flynt
+  "G",     # flake8-logging-format
+  "I",     # isort
+  "ISC",   # flake8-implicit-str-concat
+  "PIE",   # flake8-pie
+  "PLC",   # Pylint Convention
+  "PLE",   # Pylint Error
+  "PLW",   # Pylint Warning
+  "RET",   # flake8-return
+  "RUF",   # Ruff-specific rules
+  "RSE",   # flake8-raise
+  "SIM",   # flake8-simplify
+  "TID",   # flake8-tidy-imports
+  "UP",    # pyupgrade
+  "W",     # pycodestyle Warning
+  "YTT",   # flake8-2020
+]
+
+# Ignore rules
+ignore = [
+  "E741",    # Ambiguous variable name isn't a huge problem
+  "B008",    # Do not perform function calls in argument defaults
+  "B011",    # Allow `assert false`. We don't use `python -O`
+  "B028",    # We don't need explicit `stacklevel` for warnings
+  "D100",    # Docstring stuff
+  "D101",
+  "D102",
+  "D104",
+  "D105",
+  "D107",
+  "D203",
+  "D213",
+  "D401",
+  "D402",
+  "DTZ005",  # Allow `datetime.datetime.now()` to be called without a `tz` argument
+  "E402",    # Simplified black ignore config to make VSCode happy
+  "E501",
+  "E701",
+  "E731",
+  "C408",
+  "E203",
+  "G004",    # Ignore `Logging statement uses f-string` warning
+  "RET505",  # Allow unnecessary `elif` after `return` statement
+  "D106",    # Allow undocumented public nested class
+  "D205",    # No blank line required after summary
+  "PLW2901", # Allow overwriting variables in loops
+]
+
+# Disable automatic fix
+unfixable = [
+  "F841", # Unused local variable
+  "F601", # Dictionary key literal repeated
+  "F602", # Dictionary key repeated
+  "B018", # Useless expression
+]
+
+[tool.ruff.mccabe]
+# The maximum McCabe complexity to allow before triggering C901 errors.
+max-complexity = 20
+
+[tool.ruff.per-file-ignores]
+# Ignore `E402` (import violations) in all `__init__.py` files
+"__init__.py" = ["E402"]
+# Ignore `D103` (missing docstring in public function)
+"test/**" = ["D103"]
+"docs/**" = ["D103"]
