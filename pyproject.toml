@@ -12,12 +12,7 @@ description = "Localized module automatic downloader for Limbus Company (zh_Hant
 license = "GPL-3.0-or-later"
 readme = "README.md"
 requires-python = ">=3.12"
-dependencies = [
-  "anyio>=4.9.0",
-  "httpx>=0.28.1",
-  "pyside6>=6.8.2.1",
-  "requests>=2.32.3",
-]
+dependencies = ["pyside6>=6.8.2.1", "requests>=2.32.3"]
 
 [dependency-groups]
 dev = ["nuitka>=2.6.8"]
