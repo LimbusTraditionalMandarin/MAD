@@ -247,7 +247,7 @@ class MainWindow(QMainWindow):
         self.outer_frame = factory.create_image_label(
             self,
             QtCore.QRect(0, 0, 990, 700),
-            base / "OuterFrame1.png",
+            base / "OuterFrame3.png",
         )
         self.log_frame = factory.create_image_label(
             self,
@@ -332,6 +332,18 @@ class MainWindow(QMainWindow):
             )
             btn.clicked.connect(data[5])
             self.buttons.append(btn)
+
+
+        self.donate_btn = factory.create_button(
+            parent=self,
+            btn_type="icon",
+            enter_img=base / "Donate_T.png",
+            leave_img=base / "Donate_F.png",
+            text="",
+            geometry=QtCore.QRect(15, 5, 65, 65),
+            icon_size=QtCore.QSize(65, 65)
+        )
+        self.buttons.append(self.donate_btn)
 
         # Progress bar settings
         self.progress_bar = QtWidgets.QProgressBar(self)
