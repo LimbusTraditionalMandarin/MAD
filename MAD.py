@@ -74,6 +74,8 @@ class UIComponentFactory:
         if pixmap.exists():
             label.setPixmap(QtGui.QPixmap(str(pixmap)))
         label.setScaledContents(True)
+
+        label.setAttribute(QtCore.Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         return label
 
 
@@ -569,6 +571,23 @@ class MainWindow(QMainWindow):
     def closeEvent(self, event) -> None:
         QThreadPool.globalInstance().waitForDone()
         super().closeEvent(event)
+
+    def mousePressEvent(self, event: QtGui.QMouseEvent) -> None:
+        if event.button() == QtCore.Qt.MouseButton.LeftButton:
+            self.drag_start_position = event.globalPosition().toPoint()
+
+    def mouseMoveEvent(self, event: QtGui.QMouseEvent) -> None:
+        if hasattr(self, "drag_start_position") and (
+            event.buttons() & QtCore.Qt.MouseButton.LeftButton
+        ):
+            current_position = event.globalPosition().toPoint()
+            delta = current_position - self.drag_start_position
+            self.move(self.pos() + delta)
+            self.drag_start_position = current_position
+
+    def mouseReleaseEvent(self, event: QtGui.QMouseEvent) -> None:
+        if hasattr(self, "drag_start_position"):
+            del self.drag_start_position
 
 
 if __name__ == "__main__":
