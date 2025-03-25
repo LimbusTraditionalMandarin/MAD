@@ -265,7 +265,7 @@ class MainWindow(QMainWindow):
         self.outer_frame = factory.create_image_label(
             self,
             QtCore.QRect(0, 0, 990, 700),
-            base / "OuterFrame3.png",
+            base / "OuterFrame1.png",
         )
         self.log_frame = factory.create_image_label(
             self,
