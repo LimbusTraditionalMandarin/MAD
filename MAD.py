@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 from collections.abc import Callable
+from dataclasses import dataclass, field
 from functools import wraps
 from os import popen
 from pathlib import Path
@@ -13,7 +14,7 @@ from platform import system as os_name
 from re import match as rematch
 from shlex import shlex
 from shutil import rmtree
-from typing import Any
+from typing import Any, Literal
 from zipfile import ZipFile
 
 from PySide6 import QtCore, QtGui, QtWidgets
@@ -36,31 +37,39 @@ def require_game_stoping(method: Callable):
     return wrapper
 
 
-class WorkerSignals(QObject):
-    progress = Signal(int)
-    finished = Signal()
+@dataclass
+class ButtonConfig:
+    geometry: QtCore.QRect
+    png_prefix: str
+    callback: Callable
+    text: str = ""
+    icon_size: QtCore.QSize | None = None
+    btn_type: Literal["text", "icon"] = field(init=False)
+
+    def __post_init__(self) -> None:
+        self.btn_type = "icon" if not self.text else "text"
+
+        if self.icon_size is None:
+            self.icon_size = QtCore.QSize(40, 40) if not self.text else QtCore.QSize(300, 110)
 
 
 class UIComponentFactory:
     @staticmethod
     def create_button(
         parent: QObject,
-        btn_type: str,
-        enter_img: Path,
-        leave_img: Path,
-        text: str = "",
-        geometry: QtCore.QRect = None,
-        icon_size: QtCore.QSize = None,
+        config: ButtonConfig,
+        assets_dir: Path,
     ) -> QtWidgets.QPushButton:
-        if btn_type == "text":
-            button = TextButton(enter_img, leave_img, text, parent)
+        enter_img = assets_dir / f"{config.png_prefix}_T.png"
+        leave_img = assets_dir / f"{config.png_prefix}_F.png"
+
+        if config.btn_type == "text":
+            button = TextButton(enter_img, leave_img, config.text, parent)
         else:
             button = IconButton(enter_img, leave_img, parent)
 
-        if geometry:
-            button.setGeometry(geometry)
-        if icon_size:
-            button.setIconSize(icon_size)
+        button.setGeometry(config.geometry)
+        button.setIconSize(config.icon_size)
         return button
 
     @staticmethod
@@ -126,6 +135,11 @@ class IconButton(QtWidgets.QPushButton):
     def leaveEvent(self, event) -> None:
         self.setIcon(QtGui.QIcon(str(self.leave_img)))
         super().leaveEvent(event)
+
+
+class WorkerSignals(QObject):
+    progress = Signal(int)
+    finished = Signal()
 
 
 class DownloadWorker(QRunnable):
@@ -225,6 +239,10 @@ class HistoryManager:
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
+
+        # Method that will not be disabled
+        self.METHOD_WHITELIST = (self.showMinimized,)
+
         self.game_path = self._find_game_path()
         self.history = HistoryManager(self.game_path / "AutoLLC.history")
         self._setup_ui()
@@ -268,69 +286,49 @@ class MainWindow(QMainWindow):
         )
 
         # Function buttons
-        btn_data = [
-            (
-                "text",
-                "自動更新",
+        btn_configs = [
+            ButtonConfig(
                 QtCore.QRect(15, 90, 300, 110),
-                "FnButton_T.png",
-                "FnButton_F.png",
+                "FnButton",
                 self.normal_install,
+                text="自動更新",
             ),
-            (
-                "text",
-                "重新安裝",
+            ButtonConfig(
                 QtCore.QRect(15, 190, 300, 110),
-                "FnButton_T.png",
-                "FnButton_F.png",
+                "FnButton",
                 self.re_install,
+                text="重新安裝",
             ),
-            (
-                "text",
-                "移除漢化",
+            ButtonConfig(
                 QtCore.QRect(15, 290, 300, 110),
-                "FnButton_T.png",
-                "FnButton_F.png",
+                "FnButton",
                 self.remove_module,
+                text="移除漢化",
             ),
-            (
-                "text",
-                "離開工具",
+            ButtonConfig(
                 QtCore.QRect(15, 510, 300, 110),
-                "FnButton_T.png",
-                "FnButton_F.png",
+                "FnButton",
                 self.close,
+                text="離開工具",
             ),
-            (
-                "icon",
-                "",
-                QtCore.QRect(900, 0, 60, 60),
-                "CloseButton_T.png",
-                "CloseButton_F.png",
-                self.close,
-            ),
-            (
-                "icon",
-                "",
+            ButtonConfig(
                 QtCore.QRect(850, 0, 60, 60),
-                "MinButton_T.png",
-                "MinButton_F.png",
+                "MinButton",
                 self.showMinimized,
+            ),
+            ButtonConfig(
+                QtCore.QRect(900, 0, 60, 60),
+                "CloseButton",
+                self.close,
             ),
         ]
 
         self.buttons: list[QtWidgets.QPushButton] = []
-        for data in btn_data:
-            btn = factory.create_button(
-                parent=self,
-                btn_type=data[0],
-                enter_img=base / data[3],
-                leave_img=base / data[4],
-                text=data[1],
-                geometry=data[2],
-                icon_size=QtCore.QSize(300, 110) if data[0] == "text" else QtCore.QSize(40, 40),
-            )
-            btn.clicked.connect(data[5])
+        for config in btn_configs:
+            btn = factory.create_button(self, config, base)
+            btn.clicked.connect(config.callback)
+            if config.callback in self.METHOD_WHITELIST:
+                btn.setProperty("exclude_disable", True)
             self.buttons.append(btn)
 
         # Progress bar settings
@@ -467,7 +465,11 @@ class MainWindow(QMainWindow):
     def _add_log(self, message: str) -> None:
         self.log_list.addItem(QtWidgets.QListWidgetItem(message))
 
-    def _clean_installation(self) -> None:
+    def _clean_installation(self) -> bool:
+        if not self.history.data:
+            self._add_log("未找到漢化模組")
+            return False
+
         targets = [
             "BepInEx",
             "dotnet",
@@ -486,17 +488,20 @@ class MainWindow(QMainWindow):
             elif path.exists():
                 path.unlink()
             self._add_log(f"已移除: {path}")
+        self._add_log("漢化模組已移除")
         self.history.data = {}
+
+        return True
 
     def _start_installation(self, clean: bool = False) -> None:
         for btn in self.buttons:
-            btn.setEnabled(False)
+            if not btn.property("exclude_disable"):
+                btn.setEnabled(False)
 
-        if clean:
-            self._clean_installation()
+        if clean and self._clean_installation():
             self._add_log("舊模組已移除")
-        self._add_log(f"模組安裝位置: {self.game_path}")
 
+        self._add_log(f"模組安裝位置: {self.game_path}")
         tasks = []
         for name, pattern in self.api_mapping.items():
             if url := self._get_download_url(name, pattern):
@@ -522,8 +527,6 @@ class MainWindow(QMainWindow):
         else:
             self._add_log("沒有需要下載的任務")
             self._launch_game()
-            for btn in self.buttons:
-                btn.setEnabled(True)
 
     def _get_download_url(self, api_part: str, pattern: str) -> str | None:
         headers = {"User-Agent": "Mozilla/5.0"}
@@ -543,8 +546,6 @@ class MainWindow(QMainWindow):
 
     def _on_install_finished(self) -> None:
         self.history.save()
-        for btn in self.buttons:
-            btn.setEnabled(True)
         self._add_log("模組安裝完畢!")
         self._launch_game()
 
@@ -554,6 +555,11 @@ class MainWindow(QMainWindow):
             subprocess.run(["steam", "://rungameid/1973530"], check=False)
         else:
             subprocess.run([str(self.game_path / "LimbusCompany.exe")], check=False)
+        for btn in self.buttons:
+            btn.setEnabled(True)
+
+        self._add_log("啟動器將於2秒後關閉!")
+        QtCore.QTimer.singleShot(2000, self.close)
 
     @require_game_stoping
     def normal_install(self) -> None:
@@ -566,7 +572,6 @@ class MainWindow(QMainWindow):
     @require_game_stoping
     def remove_module(self) -> None:
         self._clean_installation()
-        self._add_log("漢化模組已移除")
 
     def closeEvent(self, event) -> None:
         QThreadPool.globalInstance().waitForDone()
@@ -596,7 +601,7 @@ if __name__ == "__main__":
     instance_key = "LimbusCompanyInstaller"
     socket = QLocalSocket()
     socket.connectToServer(instance_key)
-    if socket.waitForConnected(200):
+    if socket.waitForConnected(100):
         # Execution already exists, exit directly
         sys.exit(0)
 
