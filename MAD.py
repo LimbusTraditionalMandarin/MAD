@@ -50,7 +50,14 @@ class ButtonConfig:
         self.btn_type = "icon" if not self.text else "text"
 
         if self.icon_size is None:
-            self.icon_size = QtCore.QSize(40, 40) if not self.text else QtCore.QSize(300, 110)
+            self.icon_size = QtCore.QSize(35, 35) if not self.text else QtCore.QSize(250, 110)
+
+
+@dataclass
+class Supporter:
+    name: str
+    price: float
+    currency: str
 
 
 class UIComponentFactory:
@@ -103,17 +110,17 @@ class TextButton(QtWidgets.QPushButton):
         self.label.setText(text)
         self.label.setFont(QtGui.QFont("Microsoft JhengHei UI", 25, QtGui.QFont.Bold))
         self.label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-        self.label.setGeometry(20, 0, 300, 110)
-        self.label.setStyleSheet("font-size: 40px; color: black;")
+        self.label.setGeometry(20, 0, 250, 110)
+        self.label.setStyleSheet("font-size: 35px; color: black;")
 
     def enterEvent(self, event) -> None:
         self.setIcon(QtGui.QIcon(str(self.enter_img)))
-        self.label.setStyleSheet("font-size: 40px; color: rgb(236,204,163);")
+        self.label.setStyleSheet("font-size: 35px; color: rgb(236,204,163);")
         super().enterEvent(event)
 
     def leaveEvent(self, event) -> None:
         self.setIcon(QtGui.QIcon(str(self.leave_img)))
-        self.label.setStyleSheet("font-size: 40px; color: black;")
+        self.label.setStyleSheet("font-size: 35px; color: black;")
         super().leaveEvent(event)
 
 
@@ -236,22 +243,50 @@ class HistoryManager:
             json.dump(self.data, f, indent=4)
 
 
+class SupporterWindow(QtWidgets.QWidget):
+    def __init__(self):
+        super().__init__()
+        self.setWindowTitle("抖內視窗")
+        self.resize(300, 200)
+
+        main_layout = QtWidgets.QGridLayout()
+
+        supporters = [
+            ("Xiink", "100", "我愛巴士 我愛巴士"),
+            ("Xiink_JP", "10", "巴士愛我 巴士愛我"),
+        ]
+
+        for i, (name, coffee, note) in enumerate(supporters):
+            support_layout = QtWidgets.QVBoxLayout()  # 每次循环都创建新的 QVBoxLayout
+            support_layout.addWidget(QtWidgets.QLabel(f"{name}"))
+            support_layout.addWidget(QtWidgets.QLabel(f"{coffee}"))
+            support_layout.addWidget(QtWidgets.QLabel(f"{note}"))
+
+            support_widget = QtWidgets.QWidget()
+            support_widget.setLayout(support_layout)  # 绑定新创建的 layout
+
+            main_layout.addWidget(support_widget, 0, i)  # 横向排列 (列递增)
+
+        self.setLayout(main_layout)
+
+
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
 
         # Method that will not be disabled
-        self.METHOD_WHITELIST = (self.showMinimized,)
+        self.METHOD_WHITELIST = (self.showMinimized, self._get_supporter_list)
 
         self.game_path = self._find_game_path()
         self.history = HistoryManager(self.game_path / "AutoLLC.history")
+        self.supporter_window = None
         self._setup_ui()
         self._init_resources()
 
     def _setup_ui(self) -> None:
         self.setWindowFlags(QtCore.Qt.FramelessWindowHint)
         self.setAttribute(QtCore.Qt.WA_TranslucentBackground)
-        self.setFixedSize(1000, 700)
+        self.setFixedSize(800, 600)
 
         base = Path.cwd() / "assets"
         factory = UIComponentFactory()
@@ -259,67 +294,73 @@ class MainWindow(QMainWindow):
         # Basic framework
         self.bg_label = factory.create_image_label(
             self,
-            QtCore.QRect(0, 0, 990, 700),
+            QtCore.QRect(0, 0, 790, 600),
             base / "BasePlate.png",
         )
         self.outer_frame = factory.create_image_label(
             self,
-            QtCore.QRect(0, 0, 990, 700),
+            QtCore.QRect(0, 0, 790, 600),
             base / "OuterFrame1.png",
         )
         self.log_frame = factory.create_image_label(
             self,
-            QtCore.QRect(325, 50, 640, 560),
+            QtCore.QRect(280, 50, 480, 460),
             base / "OuterFrame2.png",
         )
 
         # Progress bar component
         self.progress_bar_bg = factory.create_image_label(
             self,
-            QtCore.QRect(63, 620, 865, 50),
+            QtCore.QRect(55, 520, 680, 50),
             base / "BasePlateBar.png",
         )
         self.progress_bar_frame = factory.create_image_label(
             self,
-            QtCore.QRect(30, 620, 930, 51),
+            QtCore.QRect(30, 520, 730, 51),
             base / "OuterFrameBar.png",
         )
 
         # Function buttons
         btn_configs = [
             ButtonConfig(
-                QtCore.QRect(15, 90, 300, 110),
+                QtCore.QRect(12, 70, 250, 110),
                 "FnButton",
                 self.normal_install,
                 text="自動更新",
             ),
             ButtonConfig(
-                QtCore.QRect(15, 190, 300, 110),
+                QtCore.QRect(12, 150, 250, 110),
                 "FnButton",
                 self.re_install,
                 text="重新安裝",
             ),
             ButtonConfig(
-                QtCore.QRect(15, 290, 300, 110),
+                QtCore.QRect(12, 230, 250, 110),
                 "FnButton",
                 self.remove_module,
                 text="移除漢化",
             ),
             ButtonConfig(
-                QtCore.QRect(15, 510, 300, 110),
+                QtCore.QRect(12, 420, 250, 110),
                 "FnButton",
                 self.close,
                 text="離開工具",
             ),
             ButtonConfig(
-                QtCore.QRect(850, 0, 60, 60),
+                QtCore.QRect(650, -5, 60, 60),
                 "MinButton",
                 self.showMinimized,
             ),
             ButtonConfig(
-                QtCore.QRect(900, 0, 60, 60),
+                QtCore.QRect(700, -5, 60, 60),
                 "CloseButton",
                 self.close,
+            ),
+            ButtonConfig(
+                QtCore.QRect(10, 7, 55, 55),
+                "Donate",
+                self._get_supporter_list,
+                icon_size=QtCore.QSize(55, 55),
             ),
         ]
 
@@ -331,21 +372,9 @@ class MainWindow(QMainWindow):
                 btn.setProperty("exclude_disable", True)
             self.buttons.append(btn)
 
-
-        self.donate_btn = factory.create_button(
-            parent=self,
-            btn_type="icon",
-            enter_img=base / "Donate_T.png",
-            leave_img=base / "Donate_F.png",
-            text="",
-            geometry=QtCore.QRect(15, 5, 65, 65),
-            icon_size=QtCore.QSize(65, 65)
-        )
-        self.buttons.append(self.donate_btn)
-
         # Progress bar settings
         self.progress_bar = QtWidgets.QProgressBar(self)
-        self.progress_bar.setGeometry(62, 624, 866, 43)
+        self.progress_bar.setGeometry(55, 520, 680, 46)
         self.progress_bar.setStyleSheet("""
             QProgressBar {
                 background: transparent;
@@ -366,7 +395,7 @@ class MainWindow(QMainWindow):
 
         # Log list
         self.log_list = QtWidgets.QListWidget(self)
-        self.log_list.setGeometry(355, 120, 580, 470)
+        self.log_list.setGeometry(300, 110, 440, 380)
         self.log_list.setStyleSheet("""
             background: black; color: white; border: none;
             font: bold 14pt 'Microsoft JhengHei UI';
@@ -375,9 +404,9 @@ class MainWindow(QMainWindow):
         # Title text
         self.title_label = QtWidgets.QLabel(self)
         self.title_label.setText("Limbus Company繁中漢化工具")
-        self.title_label.setGeometry(80, -2, 550, 60)
+        self.title_label.setGeometry(70, 5, 550, 35)
         self.title_label.setStyleSheet("""
-            font: bold 30px 'Microsoft JhengHei UI'; color: black;
+            font: bold 25px 'Microsoft JhengHei UI'; color: black;
         """)
 
         # Operating instructions
@@ -385,9 +414,9 @@ class MainWindow(QMainWindow):
         self.info_label.setText(
             "正常更新請點擊自動更新\n重大更新請點擊重新安裝\n運行完後將自動啟動遊戲",
         )
-        self.info_label.setGeometry(5, 400, 350, 100)
+        self.info_label.setGeometry(15, 330, 250, 100)
         self.info_label.setStyleSheet("""
-            font: bold 27px 'Microsoft JhengHei UI';
+            font: bold 22px 'Microsoft JhengHei UI';
             color: rgb(115,76,41);
         """)
         self.info_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
@@ -530,6 +559,7 @@ class MainWindow(QMainWindow):
                     ],
                 )
                 self.history.data[name] = url
+            # elif url is None:
 
         if tasks:
             self.controller = TaskController(tasks)
@@ -543,6 +573,8 @@ class MainWindow(QMainWindow):
     def _get_download_url(self, api_part: str, pattern: str) -> str | None:
         headers = {"User-Agent": "Mozilla/5.0"}
         try:
+            raise TimeoutError
+
             response = rqget(
                 f"https://api.github.com/repos/{api_part}/releases",
                 headers=headers,
@@ -555,6 +587,79 @@ class MainWindow(QMainWindow):
         except Exception as e:
             self._add_log(f"獲取下載連結失敗: {e!s}")
         return None
+
+    def _get_supporter_list(self) -> None:
+        if not self.supporter_window or not self.supporter_window.isVisible():
+            self.supporter_window = SupporterWindow()
+            self.supporter_window.show()
+
+        with open("TOKEN") as file:
+            api_key = file.read()
+
+        self.supporter_list: list[Supporter] = []
+        headers = {"Authorization": f"Bearer {api_key}"}
+        current_page = 1
+
+        while True:
+            url = f"https://developers.buymeacoffee.com/api/v1/supporters?page={current_page}"
+
+            response = rqget(url, headers=headers)
+
+            if response.status_code != 200:
+                print(f"Failed:{response.status_code}")
+                break
+
+            data = response.json()
+
+            if "error" in data:
+                self._add_log(data["error"])
+                break
+
+            for supporter in data["data"]:
+                payer_name = supporter.get("payer_name", "Anonymous").strip() or "Anonymous"
+                coffee_price = supporter["support_coffee_price"].rstrip("0").rstrip(".")
+                currency = supporter["support_currency"]
+                self.supporter_list.append(Supporter(payer_name, coffee_price, currency))
+                print(f"{payer_name} donated: {coffee_price} {currency}")
+
+            if data.get("next_page_url"):
+                current_page += 1
+            else:
+                break
+
+        while True:
+            url = f"https://developers.buymeacoffee.com/api/v1/subscriptions?page={current_page}"
+
+            response = rqget(url, headers=headers)
+
+            if response.status_code != 200:
+                print(f"Failed:{response.status_code}")
+                break
+
+            data = response.json()
+
+            if "error" in data:
+                self._add_log(data["error"])
+                break
+
+            for supporter in data["data"]:
+                payer_name = supporter.get("payer_name", "Anonymous").strip() or "Anonymous"
+                coffee_price = supporter["subscription_coffee_price"].rstrip("0").rstrip(".")
+                currency = supporter["subscription_currency"]
+                self.supporter_list.append(Supporter(payer_name, coffee_price, currency))
+                print(f"{payer_name} donated: {coffee_price} {currency}")
+
+            if data.get("next_page_url"):
+                current_page += 1
+            else:
+                break
+
+        try:
+            for supporter in self.supporter_list:
+                self._add_log(f"{supporter.name} donated {supporter.price} {supporter.currency}")
+
+        except Exception as e:
+            self._add_log(f"獲取抖內清單失敗: {e}")
 
     def _on_install_finished(self) -> None:
         self.history.save()
