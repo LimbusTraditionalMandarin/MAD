@@ -227,9 +227,11 @@ class DownloadWorker(QRunnable):
                             downloaded += len(chunk)
                             if total_size > 0:
                                 self.signals.progress.emit(int((downloaded * 100) / total_size))
-            self.signals.finished.emit()
         except Exception as e:
             print(f"Download error: {e}")
+        finally:
+            self.session.close()
+            self.signals.finished.emit()
 
 
 class ExtractWorker(QRunnable):
@@ -246,10 +248,11 @@ class ExtractWorker(QRunnable):
                 for i, file in enumerate(zip_ref.infolist()):
                     zip_ref.extract(file, self.output)
                     self.signals.progress.emit(int(((i + 1) * 100) / total))
-            self.archive.unlink()
-            self.signals.finished.emit()
         except Exception as e:
             print(f"Extract error: {e}")
+        finally:
+            self.archive.unlink()
+            self.signals.finished.emit()
 
 
 class GetSupporterList(QRunnable):
@@ -417,7 +420,6 @@ class MainWindow(QMainWindow):
         self.supporter_visible = False
         self.supporter_task = False
 
-        # self.steam_path = self._find_steam_path()
         self.steam_path, self.game_path = self._find_steam_and_game_path()
         self.history = HistoryManager(self.game_path / "AutoLLC.history")
         self.api_mapping = {
@@ -430,7 +432,6 @@ class MainWindow(QMainWindow):
 
         self.supporter_window = None
         self._setup_ui()
-        # self._init_resources()
 
     def _setup_ui(self) -> None:
         self.setWindowFlags(QtCore.Qt.FramelessWindowHint)
@@ -587,7 +588,7 @@ class MainWindow(QMainWindow):
             QtCore.Qt.AlignmentFlag.AlignTop | QtCore.Qt.AlignmentFlag.AlignLeft,
         )
 
-        # 讓supporter_widget可以滑動
+        # Allow slider
         self.supporter_scroll_area = QtWidgets.QScrollArea(self)
         self.supporter_scroll_area.setGeometry(40, 100, 710, 460)
         self.supporter_scroll_area.setWidgetResizable(True)
@@ -646,7 +647,6 @@ class MainWindow(QMainWindow):
                     return steam_path, path.parent
 
             raise RuntimeError("Game installation path not found")
-        # return Path(winreg.QueryValueEx(key, "SteamPath")[0])
         except ModuleNotFoundError:
             raise NotImplementedError("This App only supports Windows systems") from None
         except FileNotFoundError:
@@ -745,7 +745,6 @@ class MainWindow(QMainWindow):
                     ],
                 )
                 self.history.data[name] = url
-            # elif url is None:
 
         if tasks:
             self.controller = TaskController(tasks)
@@ -842,6 +841,7 @@ class MainWindow(QMainWindow):
         self._clean_installation()
 
     def closeEvent(self, event) -> None:
+        self.session.close()
         QThreadPool.globalInstance().waitForDone()
         super().closeEvent(event)
 
