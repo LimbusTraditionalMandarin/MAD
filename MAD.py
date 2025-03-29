@@ -2,6 +2,7 @@
 # Copyright (c) 2025- Limbus Traditional Mandarin
 
 import json
+import string
 import subprocess
 import sys
 import tempfile
@@ -10,7 +11,6 @@ from dataclasses import dataclass, field
 from functools import wraps
 from os import popen
 from pathlib import Path
-from platform import system as os_name
 from re import match as rematch
 from shlex import shlex
 from shutil import rmtree
@@ -22,6 +22,8 @@ from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import QApplication, QMainWindow
 from requests import get as rqget
+
+from TOKEN import BUY_ME_A_COFFEE_TOKEN
 
 
 def require_game_stoping(method: Callable):
@@ -94,6 +96,32 @@ class UIComponentFactory:
         label.setAttribute(QtCore.Qt.WidgetAttribute.WA_TransparentForMouseEvents)
         return label
 
+    @staticmethod
+    def truncate(s: str) -> str:
+        cost = lambda ch: 1 if ch in string.ascii_letters else 0.75 if ch.isdigit() else 1.25
+        total, cum = 0, []
+        for ch in s:
+            total += cost(ch)
+            cum.append(total)
+        return s if total <= 15 else f"{s[: next(i for i, v in enumerate(cum) if v > 14.25)]}…"
+
+    @classmethod
+    def create_supporter_data(
+        cls,
+        supporter: Supporter,
+        name_pixmap: Path,
+    ) -> QtWidgets.QVBoxLayout:
+        support_layout = QtWidgets.QVBoxLayout()
+        support_layout.setSpacing(0)
+        support_layout.setContentsMargins(0, 0, 0, 0)
+
+        label_name = ImageLabel(
+            f"{name_pixmap}",
+            f"{cls.truncate(supporter.name)}\n{supporter.price} {supporter.currency}",
+        )
+        support_layout.addWidget(label_name)
+        return support_layout
+
 
 class TextButton(QtWidgets.QPushButton):
     def __init__(self, enter_img: Path, leave_img: Path, text: str, parent: QObject = None) -> None:
@@ -142,6 +170,34 @@ class IconButton(QtWidgets.QPushButton):
     def leaveEvent(self, event) -> None:
         self.setIcon(QtGui.QIcon(str(self.leave_img)))
         super().leaveEvent(event)
+
+
+class ImageLabel(QtWidgets.QLabel):
+    def __init__(self, image_path, text, parent=None):
+        super().__init__(parent)
+        self.image_path = image_path
+        self.text = text
+        self.setFixedSize(220, 100)
+        self.setFont(QtGui.QFont("Microsoft JhengHei UI", 13, QtGui.QFont.Bold))
+        self.setStyleSheet("border: 0px solid white; padding: 0px;")
+
+    def paintEvent(self, event):
+        painter = QtGui.QPainter(self)
+
+        if Path(self.image_path).exists():
+            pixmap = QtGui.QPixmap(self.image_path)
+            pixmap = pixmap.scaled(
+                self.size(),
+                QtCore.Qt.AspectRatioMode.KeepAspectRatio,
+                QtCore.Qt.TransformationMode.SmoothTransformation,
+            )
+            painter.drawPixmap(0, 0, self.width(), self.height(), pixmap)
+
+        painter.setPen(QtGui.QColor("White"))
+        painter.setFont(self.font())
+        painter.drawText(self.rect(), QtCore.Qt.AlignmentFlag.AlignCenter, self.text)
+
+        painter.end()
 
 
 class WorkerSignals(QObject):
@@ -195,6 +251,80 @@ class ExtractWorker(QRunnable):
             print(f"Extract error: {e}")
 
 
+class GetSupporterList(QRunnable):
+    def __init__(self, headers: str, supporter_list: list[Supporter]) -> None:
+        super().__init__()
+        self.headers = headers
+        self.supporter_list = supporter_list
+        self.signals = WorkerSignals()
+
+    def run(self) -> None:
+        try:
+            current_page = 1
+            while True:
+                url = f"https://developers.buymeacoffee.com/api/v1/supporters?page={current_page}"
+
+                response = rqget(url, headers=self.headers)
+
+                if response.status_code != 200:
+                    print(f"Failed:{response.status_code}")
+                    break
+
+                data = response.json()
+
+                if "error" in data:
+                    self._add_log(data["error"])
+                    break
+
+                for supporter in data["data"]:
+                    payer_name = supporter.get("payer_name", "Anonymous").strip() or "Anonymous"
+                    coffee_price = supporter["support_coffee_price"].rstrip("0").rstrip(".")
+                    currency = supporter["support_currency"]
+                    self.supporter_list.append(Supporter(payer_name, coffee_price, currency))
+                    print(f"{payer_name} donated: {coffee_price} {currency}")
+
+                if data.get("next_page_url"):
+                    current_page += 1
+                else:
+                    break
+
+            current_page = 1
+            while True:
+                url = (
+                    f"https://developers.buymeacoffee.com/api/v1/subscriptions?page={current_page}"
+                )
+
+                response = rqget(url, headers=self.headers)
+
+                if response.status_code != 200:
+                    print(f"Failed:{response.status_code}")
+                    break
+
+                data = response.json()
+
+                if "error" in data:
+                    # self._add_log(data["error"])
+                    break
+
+                for supporter in data["data"]:
+                    payer_name = supporter.get("payer_name", "Anonymous").strip() or "Anonymous"
+                    coffee_price = supporter["subscription_coffee_price"].rstrip("0").rstrip(".")
+                    currency = supporter["subscription_currency"]
+                    self.supporter_list.append(Supporter(payer_name, coffee_price, currency))
+                    print(f"{payer_name} donated: {coffee_price} {currency}")
+
+                if data.get("next_page_url"):
+                    current_page += 1
+                else:
+                    break
+
+        except Exception as e:
+            print(f"Extract error: {e}")
+
+        finally:
+            self.signals.finished.emit()
+
+
 class TaskController(QObject):
     progress = Signal(int)
     finished = Signal()
@@ -243,82 +373,77 @@ class HistoryManager:
             json.dump(self.data, f, indent=4)
 
 
-class SupporterWindow(QtWidgets.QWidget):
-    def __init__(self):
-        super().__init__()
-        self.setWindowTitle("抖內視窗")
-        self.resize(300, 200)
-
-        main_layout = QtWidgets.QGridLayout()
-
-        supporters = [
-            ("Xiink", "100", "我愛巴士 我愛巴士"),
-            ("Xiink_JP", "10", "巴士愛我 巴士愛我"),
-        ]
-
-        for i, (name, coffee, note) in enumerate(supporters):
-            support_layout = QtWidgets.QVBoxLayout()  # 每次循环都创建新的 QVBoxLayout
-            support_layout.addWidget(QtWidgets.QLabel(f"{name}"))
-            support_layout.addWidget(QtWidgets.QLabel(f"{coffee}"))
-            support_layout.addWidget(QtWidgets.QLabel(f"{note}"))
-
-            support_widget = QtWidgets.QWidget()
-            support_widget.setLayout(support_layout)  # 绑定新创建的 layout
-
-            main_layout.addWidget(support_widget, 0, i)  # 横向排列 (列递增)
-
-        self.setLayout(main_layout)
-
-
 class MainWindow(QMainWindow):
     def __init__(self) -> None:
         super().__init__()
 
-        # Method that will not be disabled
-        self.METHOD_WHITELIST = (self.showMinimized, self._get_supporter_list)
+        self.has_error: bool = False
 
-        self.game_path = self._find_game_path()
+        # Method that will not be disabled
+        self.METHOD_WHITELIST = (self.showMinimized, self.show_supporter_list)
+        self.VISABLE_WHITELIST = (self.showMinimized, self.show_supporter_list, self.close)
+
+        self.supporter_visible = False
+        self.supporter_task = False
+
+        # self.steam_path = self._find_steam_path()
+        self.steam_path, self.game_path = self._find_steam_and_game_path()
         self.history = HistoryManager(self.game_path / "AutoLLC.history")
+        self.api_mapping = {
+            "BepInEx/BepInEx": r"https.*BepInEx-Unity.IL2CPP-win-x64-6.*.zip",
+            "LimbusTraditionalMandarin/font": r"https.*LTM_font.*.zip",
+            "LimbusTraditionalMandarin/storyline": r"https.*LTM_.*.zip",
+        }
+
+        self._get_supporter_list()
+
         self.supporter_window = None
         self._setup_ui()
-        self._init_resources()
+        # self._init_resources()
 
     def _setup_ui(self) -> None:
         self.setWindowFlags(QtCore.Qt.FramelessWindowHint)
         self.setAttribute(QtCore.Qt.WA_TranslucentBackground)
         self.setFixedSize(800, 600)
 
-        base = Path.cwd() / "assets"
-        factory = UIComponentFactory()
+        self.base = Path.cwd() / "assets"
+        self.factory = UIComponentFactory()
 
         # Basic framework
-        self.bg_label = factory.create_image_label(
+        self.bg_label = self.factory.create_image_label(
             self,
             QtCore.QRect(0, 0, 790, 600),
-            base / "BasePlate.png",
+            self.base / "BasePlate.png",
         )
-        self.outer_frame = factory.create_image_label(
+        self.outer_frame = self.factory.create_image_label(
             self,
             QtCore.QRect(0, 0, 790, 600),
-            base / "OuterFrame1.png",
+            self.base / "OuterFrame1.png",
         )
-        self.log_frame = factory.create_image_label(
+        self.log_frame = self.factory.create_image_label(
             self,
-            QtCore.QRect(280, 50, 480, 460),
-            base / "OuterFrame2.png",
+            QtCore.QRect(280, 45, 480, 460),
+            self.base / "OuterFrame2.png",
         )
 
         # Progress bar component
-        self.progress_bar_bg = factory.create_image_label(
+        self.progress_bar_bg = self.factory.create_image_label(
             self,
             QtCore.QRect(55, 520, 680, 50),
-            base / "BasePlateBar.png",
+            self.base / "BasePlateBar.png",
         )
-        self.progress_bar_frame = factory.create_image_label(
+        self.progress_bar_frame = self.factory.create_image_label(
             self,
             QtCore.QRect(30, 520, 730, 51),
-            base / "OuterFrameBar.png",
+            self.base / "OuterFrameBar.png",
         )
+
+        self.supporter_frame = self.factory.create_image_label(
+            self,
+            QtCore.QRect(20, 45, 750, 530),
+            self.base / "SupporterFrame.png",
+        )
+        self.supporter_frame.setVisible(False)
 
         # Function buttons
         btn_configs = [
@@ -359,17 +484,19 @@ class MainWindow(QMainWindow):
             ButtonConfig(
                 QtCore.QRect(10, 7, 55, 55),
                 "Donate",
-                self._get_supporter_list,
+                self.show_supporter_list,
                 icon_size=QtCore.QSize(55, 55),
             ),
         ]
 
         self.buttons: list[QtWidgets.QPushButton] = []
         for config in btn_configs:
-            btn = factory.create_button(self, config, base)
+            btn = self.factory.create_button(self, config, self.base)
             btn.clicked.connect(config.callback)
             if config.callback in self.METHOD_WHITELIST:
                 btn.setProperty("exclude_disable", True)
+            if config.callback in self.VISABLE_WHITELIST and config.text != "離開工具":
+                btn.setProperty("exclude_visable", True)
             self.buttons.append(btn)
 
         # Progress bar settings
@@ -395,7 +522,7 @@ class MainWindow(QMainWindow):
 
         # Log list
         self.log_list = QtWidgets.QListWidget(self)
-        self.log_list.setGeometry(300, 110, 440, 380)
+        self.log_list.setGeometry(300, 105, 440, 380)
         self.log_list.setStyleSheet("""
             background: black; color: white; border: none;
             font: bold 14pt 'Microsoft JhengHei UI';
@@ -421,6 +548,34 @@ class MainWindow(QMainWindow):
         """)
         self.info_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
 
+        self.supporter_widget = QtWidgets.QWidget(self)
+        self.supporter_layout = QtWidgets.QGridLayout(self.supporter_widget)
+        self.supporter_layout.setSpacing(10)
+        self.supporter_layout.setVerticalSpacing(15)
+        self.supporter_layout.setAlignment(
+            QtCore.Qt.AlignmentFlag.AlignTop | QtCore.Qt.AlignmentFlag.AlignLeft,
+        )
+
+        # 讓supporter_widget可以滑動
+        self.supporter_scroll_area = QtWidgets.QScrollArea(self)
+        self.supporter_scroll_area.setGeometry(40, 100, 710, 460)
+        self.supporter_scroll_area.setWidgetResizable(True)
+        self.supporter_scroll_area.setWidget(self.supporter_widget)
+        self.supporter_scroll_area.setStyleSheet("background: transparent; border: none;")
+        self.supporter_scroll_area.setVisible(False)
+
+        self.hide_uis = [
+            self.log_frame,
+            self.progress_bar_bg,
+            self.progress_bar,
+            self.progress_bar_frame,
+            self.log_list,
+            self.info_label,
+            self.supporter_frame,
+            self.supporter_scroll_area,
+            *(btn for btn in self.buttons if not btn.property("exclude_visable")),
+        ]
+
         # Layer order adjustment
         self.bg_label.lower()
         self.outer_frame.raise_()
@@ -428,6 +583,8 @@ class MainWindow(QMainWindow):
         self.progress_bar_bg.raise_()
         self.progress_bar.raise_()
         self.progress_bar_frame.raise_()
+        self.supporter_frame.raise_()
+        self.supporter_widget.raise_()
 
         # Make sure core components are at the top
         self.log_list.raise_()
@@ -437,14 +594,15 @@ class MainWindow(QMainWindow):
             btn.raise_()
 
     @classmethod
-    def _find_game_path(cls) -> Path:
-        if os_name().lower() != "windows":
-            raise NotImplementedError("This App only supports Windows systems")
-
+    def _find_steam_and_game_path(cls) -> tuple[Path, Path]:
+        """Return SteamPath and GamePath."""
         try:
             import winreg
 
-            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Valve\Steam") as key:
+            with winreg.OpenKey(
+                winreg.HKEY_CURRENT_USER,
+                r"Software\Valve\Steam",
+            ) as key:
                 steam_path = Path(winreg.QueryValueEx(key, "SteamPath")[0])
 
             libs = json.loads(
@@ -454,10 +612,14 @@ class MainWindow(QMainWindow):
                 if (
                     path := Path(lib["path"]) / "steamapps/common/Limbus Company/LimbusCompany.exe"
                 ).exists():
-                    return path.parent
-            raise FileNotFoundError("Game installation path not found")
-        except Exception as e:
-            raise RuntimeError(f"Path lookup failed: {e}") from e
+                    return steam_path, path.parent
+
+            raise RuntimeError("Game installation path not found")
+        # return Path(winreg.QueryValueEx(key, "SteamPath")[0])
+        except ModuleNotFoundError:
+            raise NotImplementedError("This App only supports Windows systems") from None
+        except FileNotFoundError:
+            raise FileNotFoundError("Steam not found") from None
 
     @staticmethod
     def _parse_vdf(content: str) -> str:
@@ -491,13 +653,6 @@ class MainWindow(QMainWindow):
                     if ntok != "}":
                         jbuf += ","
                     jbuf += "\n"
-
-    def _init_resources(self):
-        self.api_mapping = {
-            "BepInEx/BepInEx": r"https.*BepInEx-Unity.IL2CPP-win-x64-6.*.zip",
-            "LimbusTraditionalMandarin/font": r"https.*LTM_font.*.zip",
-            "LimbusTraditionalMandarin/storyline": r"https.*LTM_.*.zip",
-        }
 
     def _update_progress(self, value: int) -> None:
         self.progress_bar.setValue(value)
@@ -573,8 +728,6 @@ class MainWindow(QMainWindow):
     def _get_download_url(self, api_part: str, pattern: str) -> str | None:
         headers = {"User-Agent": "Mozilla/5.0"}
         try:
-            raise TimeoutError
-
             response = rqget(
                 f"https://api.github.com/repos/{api_part}/releases",
                 headers=headers,
@@ -585,81 +738,44 @@ class MainWindow(QMainWindow):
                 if rematch(pattern, url):
                     return url
         except Exception as e:
+            self.has_error = True
             self._add_log(f"獲取下載連結失敗: {e!s}")
         return None
 
     def _get_supporter_list(self) -> None:
-        if not self.supporter_window or not self.supporter_window.isVisible():
-            self.supporter_window = SupporterWindow()
-            self.supporter_window.show()
-
-        with open("TOKEN") as file:
-            api_key = file.read()
-
         self.supporter_list: list[Supporter] = []
-        headers = {"Authorization": f"Bearer {api_key}"}
-        current_page = 1
+        headers = {"Authorization": f"Bearer {BUY_ME_A_COFFEE_TOKEN}"}
+        worker = GetSupporterList(headers, self.supporter_list)
+        worker.signals.finished.connect(self._add_supporter_list)
+        QThreadPool.globalInstance().start(worker)
 
-        while True:
-            url = f"https://developers.buymeacoffee.com/api/v1/supporters?page={current_page}"
+    def show_supporter_list(self) -> None:
+        for ui in self.hide_uis:
+            ui.setVisible(not ui.isVisible())
 
-            response = rqget(url, headers=headers)
+    def _add_supporter_list(self) -> None:
+        self.supporter_task = False
 
-            if response.status_code != 200:
-                print(f"Failed:{response.status_code}")
-                break
+        max_columns = 3
+        for i, (supporter) in enumerate(self.supporter_list):
+            row = i // max_columns
+            col = i % max_columns
 
-            data = response.json()
+            support_data = self.factory.create_supporter_data(
+                supporter,
+                self.base / "SupporterData.png",
+            )
 
-            if "error" in data:
-                self._add_log(data["error"])
-                break
+            support_widget = QtWidgets.QWidget()
+            support_widget.setSizePolicy(
+                QtWidgets.QSizePolicy.Maximum,
+                QtWidgets.QSizePolicy.Maximum,
+            )
+            support_widget.setStyleSheet("border: 0px solid white; padding: 0px;")
+            support_widget.setLayout(support_data)
+            self.supporter_layout.addWidget(support_widget, row, col)
 
-            for supporter in data["data"]:
-                payer_name = supporter.get("payer_name", "Anonymous").strip() or "Anonymous"
-                coffee_price = supporter["support_coffee_price"].rstrip("0").rstrip(".")
-                currency = supporter["support_currency"]
-                self.supporter_list.append(Supporter(payer_name, coffee_price, currency))
-                print(f"{payer_name} donated: {coffee_price} {currency}")
-
-            if data.get("next_page_url"):
-                current_page += 1
-            else:
-                break
-
-        while True:
-            url = f"https://developers.buymeacoffee.com/api/v1/subscriptions?page={current_page}"
-
-            response = rqget(url, headers=headers)
-
-            if response.status_code != 200:
-                print(f"Failed:{response.status_code}")
-                break
-
-            data = response.json()
-
-            if "error" in data:
-                self._add_log(data["error"])
-                break
-
-            for supporter in data["data"]:
-                payer_name = supporter.get("payer_name", "Anonymous").strip() or "Anonymous"
-                coffee_price = supporter["subscription_coffee_price"].rstrip("0").rstrip(".")
-                currency = supporter["subscription_currency"]
-                self.supporter_list.append(Supporter(payer_name, coffee_price, currency))
-                print(f"{payer_name} donated: {coffee_price} {currency}")
-
-            if data.get("next_page_url"):
-                current_page += 1
-            else:
-                break
-
-        try:
-            for supporter in self.supporter_list:
-                self._add_log(f"{supporter.name} donated {supporter.price} {supporter.currency}")
-
-        except Exception as e:
-            self._add_log(f"獲取抖內清單失敗: {e}")
+        self.supporter_widget.setLayout(self.supporter_layout)
 
     def _on_install_finished(self) -> None:
         self.history.save()
@@ -669,12 +785,15 @@ class MainWindow(QMainWindow):
     def _launch_game(self) -> None:
         self._add_log("即將為您啟動遊戲!")
         if not any("steam" in line.lower() for line in popen("tasklist").readlines()):
-            subprocess.run(["steam", "://rungameid/1973530"], check=False)
+            subprocess.run([self.steam_path / "steam.exe", "-applaunch", "1973530"], check=False)
         else:
             subprocess.run([str(self.game_path / "LimbusCompany.exe")], check=False)
+
         for btn in self.buttons:
             btn.setEnabled(True)
 
+        if self.has_error:
+            return
         self._add_log("啟動器將於2秒後關閉!")
         QtCore.QTimer.singleShot(2000, self.close)
 

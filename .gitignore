@@ -12,4 +12,5 @@ wheels/
 # Build file
 out/
 
-TOKEN
+# BuyMeACoffee TOKEN
+TOKEN.py
