@@ -21,7 +21,7 @@ from PySide6 import QtCore, QtGui, QtWidgets
 from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal
 from PySide6.QtNetwork import QLocalServer, QLocalSocket
 from PySide6.QtWidgets import QApplication, QMainWindow
-from requests import get as rqget
+from requests import JSONDecodeError, RequestException, Session
 
 from TOKEN import BUY_ME_A_COFFEE_TOKEN
 
@@ -117,7 +117,7 @@ class UIComponentFactory:
 
         label_name = ImageLabel(
             f"{name_pixmap}",
-            f"{cls.truncate(supporter.name)}\n{supporter.price} {supporter.currency}",
+            f"{cls.truncate(supporter.name)}\n{supporter.price:.2f} {supporter.currency}",
         )
         support_layout.addWidget(label_name)
         return support_layout
@@ -211,10 +211,11 @@ class DownloadWorker(QRunnable):
         self.url = url
         self.dest = dest
         self.signals = WorkerSignals()
+        self.session = Session()
 
     def run(self) -> None:
         try:
-            with rqget(self.url, stream=True) as response:
+            with self.session.get(self.url, stream=True) as response:
                 response.raise_for_status()
                 total_size = int(response.headers.get("Content-Length", 0))
                 downloaded = 0
@@ -252,77 +253,106 @@ class ExtractWorker(QRunnable):
 
 
 class GetSupporterList(QRunnable):
-    def __init__(self, headers: str, supporter_list: list[Supporter]) -> None:
+    def __init__(self, headers: dict, supporter_list: list[Supporter]) -> None:
         super().__init__()
         self.headers = headers
-        self.supporter_list = supporter_list
         self.signals = WorkerSignals()
+        self.session = Session()
+        self.session.headers.update(headers)
+
+        # Share memory from MainWindow
+        self.supporter_list: list[Supporter] = supporter_list
 
     def run(self) -> None:
         try:
-            current_page = 1
-            while True:
-                url = f"https://developers.buymeacoffee.com/api/v1/supporters?page={current_page}"
+            endpoints_config = [
+                {
+                    "type": "supporters",
+                    "price_key": "support_coffee_price",
+                    "currency_key": "support_currency",
+                },
+                {
+                    "type": "subscriptions",
+                    "price_key": "subscription_coffee_price",
+                    "currency_key": "subscription_currency",
+                },
+            ]
 
-                response = rqget(url, headers=self.headers)
-
-                if response.status_code != 200:
-                    print(f"Failed:{response.status_code}")
-                    break
-
-                data = response.json()
-
-                if "error" in data:
-                    self._add_log(data["error"])
-                    break
-
-                for supporter in data["data"]:
-                    payer_name = supporter.get("payer_name", "Anonymous").strip() or "Anonymous"
-                    coffee_price = supporter["support_coffee_price"].rstrip("0").rstrip(".")
-                    currency = supporter["support_currency"]
-                    self.supporter_list.append(Supporter(payer_name, coffee_price, currency))
-                    print(f"{payer_name} donated: {coffee_price} {currency}")
-
-                if data.get("next_page_url"):
-                    current_page += 1
-                else:
-                    break
-
-            current_page = 1
-            while True:
-                url = (
-                    f"https://developers.buymeacoffee.com/api/v1/subscriptions?page={current_page}"
+            for config in endpoints_config:
+                self._process_endpoint(
+                    endpoint_type=config["type"],
+                    price_field=config["price_key"],
+                    currency_field=config["currency_key"],
                 )
 
-                response = rqget(url, headers=self.headers)
+        except Exception as e:
+            self.signals.error.emit(str(e))
+            print(f"Critical error occurred: {e}")
+        finally:
+            self.session.close()
+            self.signals.finished.emit()
 
-                if response.status_code != 200:
-                    print(f"Failed:{response.status_code}")
+    def _process_endpoint(
+        self,
+        endpoint_type: str,
+        price_field: str,
+        currency_field: str,
+    ) -> None:
+        next_page = 1
+        base_url = f"https://developers.buymeacoffee.com/api/v1/{endpoint_type}"
+
+        while True:
+            try:
+                response = self.session.get(
+                    url=base_url,
+                    params={"page": next_page},
+                    timeout=10,
+                )
+
+                if not response.ok:
                     break
 
-                data = response.json()
+                try:
+                    data = response.json()
+                except JSONDecodeError:
+                    break
 
                 if "error" in data:
-                    # self._add_log(data["error"])
                     break
 
-                for supporter in data["data"]:
-                    payer_name = supporter.get("payer_name", "Anonymous").strip() or "Anonymous"
-                    coffee_price = supporter["subscription_coffee_price"].rstrip("0").rstrip(".")
-                    currency = supporter["subscription_currency"]
-                    self.supporter_list.append(Supporter(payer_name, coffee_price, currency))
-                    print(f"{payer_name} donated: {coffee_price} {currency}")
+                supporters = data.get("data", [])
+                if not supporters:
+                    break
+
+                for supporter in supporters:
+                    self._process_supporter(
+                        supporter,
+                        price_field,
+                        currency_field,
+                    )
 
                 if data.get("next_page_url"):
-                    current_page += 1
+                    next_page += 1
                 else:
                     break
 
-        except Exception as e:
-            print(f"Extract error: {e}")
+            except RequestException:
+                break
 
-        finally:
-            self.signals.finished.emit()
+    def _process_supporter(
+        self,
+        supporter: dict,
+        price_field: str,
+        currency_field: str,
+    ) -> None:
+        payer_name = (supporter.get("payer_name") or "Anonymous").strip()
+
+        raw_price = supporter.get(price_field, "0")
+
+        currency = supporter.get(currency_field, "USD")
+
+        supporter_obj = Supporter(payer_name, float(raw_price), currency)
+        self.supporter_list.append(supporter_obj)
 
 
 class TaskController(QObject):
@@ -378,6 +408,7 @@ class MainWindow(QMainWindow):
         super().__init__()
 
         self.has_error: bool = False
+        self.session = Session()
 
         # Method that will not be disabled
         self.METHOD_WHITELIST = (self.showMinimized, self.show_supporter_list)
@@ -727,8 +758,9 @@ class MainWindow(QMainWindow):
 
     def _get_download_url(self, api_part: str, pattern: str) -> str | None:
         headers = {"User-Agent": "Mozilla/5.0"}
+
         try:
-            response = rqget(
+            response = self.session.get(
                 f"https://api.github.com/repos/{api_part}/releases",
                 headers=headers,
             )
