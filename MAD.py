@@ -479,26 +479,26 @@ class MainWindow(QMainWindow):
 
         # Function buttons
         btn_configs = [
+            # ButtonConfig(
+            #     QtCore.QRect(12, 70, 250, 110),
+            #     "FnButton",
+            #     self.normal_install,
+            #     text="自動更新",
+            # ),
+            # ButtonConfig(
+            #     QtCore.QRect(12, 150, 250, 110),
+            #     "FnButton",
+            #     self.re_install,
+            #     text="重新安裝",
+            # ),
             ButtonConfig(
                 QtCore.QRect(12, 70, 250, 110),
-                "FnButton",
-                self.normal_install,
-                text="自動更新",
-            ),
-            ButtonConfig(
-                QtCore.QRect(12, 150, 250, 110),
-                "FnButton",
-                self.re_install,
-                text="重新安裝",
-            ),
-            ButtonConfig(
-                QtCore.QRect(12, 230, 250, 110),
                 "FnButton",
                 self.remove_module,
                 text="移除漢化",
             ),
             ButtonConfig(
-                QtCore.QRect(12, 420, 250, 110),
+                QtCore.QRect(12, 400, 250, 110),
                 "FnButton",
                 self.close,
                 text="離開工具",
@@ -562,7 +562,7 @@ class MainWindow(QMainWindow):
 
         # Title text
         self.title_label = QtWidgets.QLabel(self)
-        self.title_label.setText("Limbus Company繁中漢化工具")
+        self.title_label.setText("Limbus Company繁中移除工具")
         self.title_label.setGeometry(70, 5, 550, 35)
         self.title_label.setStyleSheet("""
             font: bold 25px 'Microsoft JhengHei UI'; color: black;
@@ -570,9 +570,9 @@ class MainWindow(QMainWindow):
 
         # Operating instructions
         self.info_label = QtWidgets.QLabel(self)
-        self.info_label.setText(
-            "正常更新請點擊自動更新\n重大更新請點擊重新安裝\n運行完後將自動啟動遊戲",
-        )
+        # self.info_label.setText(
+        #     "正常更新請點擊自動更新\n重大更新請點擊重新安裝\n運行完後將自動啟動遊戲",
+        # )
         self.info_label.setGeometry(15, 330, 250, 100)
         self.info_label.setStyleSheet("""
             font: bold 22px 'Microsoft JhengHei UI';
